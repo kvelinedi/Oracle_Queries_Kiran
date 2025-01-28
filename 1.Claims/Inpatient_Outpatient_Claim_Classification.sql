@@ -1,0 +1,88 @@
+    
+  WITH RankedClaims AS (
+    SELECT
+  cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM
+        CLAIM_FACT cf
+    WHERE
+        cf.IS_CONVERTED = 'N'
+        AND cf.IS_TRIAL_CLAIM = 'N'
+        AND cf.IS_CURRENT ='Y'
+)
+SELECT
+    rc.CLAIM_HCC_ID,
+    rc.CLAIM_STATUS,
+    rc.CLAIM_TYPE_NAME,
+    m.MEMBER_HCC_ID,    
+    m.MEMBER_FIRST_NAME,    
+    m.MEMBER_LAST_NAME,
+    ashf.SUPPLIER_NAME AS ASHF_SUPPLIER_NAME,
+    ashf.SUPPLIER_HCC_ID AS ASHF_SUPPLIER_HCC_ID,
+    rc.PLACE_OF_SERVICE_CODE,
+    ascpos.ADMIT_STATUS_NAME,
+    rc.TYPE_OF_BILL_CODE,
+    asctob.ADMIT_STATUS_NAME,
+    rc.LENGTH_OF_STAY,
+    COALESCE(ascpos.ADMIT_STATUS_NAME, asctob.ADMIT_STATUS_NAME) AS Final_ADMIT_STATUS_NAME,
+    dd.DATE_VALUE AS Receipt_Date,
+    rc.ENTRY_TIME,
+    rc.MOST_RECENT_PROCESS_TIME
+FROM RankedClaims rc
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY 
+LEFT JOIN
+    payor_dw.SUPPLIER ASHF ON rc.SUPPLIER_KEY = ashf.SUPPLIER_KEY 
+LEFT JOIN
+    payor_dw."MEMBER" m ON rc.MEMBER_KEY = m.MEMBER_KEY
+LEFT JOIN 
+    payor_dw.PLACE_OF_SERVICE pos ON rc.PLACE_OF_SERVICE_CODE = pos.PLACE_OF_SERVICE_CODE 
+LEFT JOIN 
+    payor_dw.ADMIT_STATUS_CODE ascpos ON pos.ADMIT_STATUS_CODE = ascpos.ADMIT_STATUS_CODE 
+LEFT JOIN 
+    payor_dw.TYPE_OF_BILL tob ON rc.TYPE_OF_BILL_CODE = tob.TYPE_OF_BILL_CODE 
+LEFT JOIN 
+    payor_dw.ADMIT_STATUS_CODE asctob ON tob.ADMIT_STATUS_CODE = asctob.ADMIT_STATUS_CODE 
+WHERE
+    rn = 1
+    AND rc.CLAIM_TYPE_NAME = 'Institutional'
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+
+    WITH FilteredClaims AS (
+    SELECT *
+    FROM CLAIM_FACT
+    WHERE IS_CONVERTED = 'N'
+      AND IS_TRIAL_CLAIM = 'N'
+      AND IS_CURRENT = 'Y'
+),
+RankedClaims AS (
+    SELECT
+        cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM FilteredClaims cf
+)
+SELECT
+    COALESCE(ascpos.ADMIT_STATUS_NAME, asctob.ADMIT_STATUS_NAME) AS ADMIT_STATUS_NAME,
+    COUNT(*) AS COUNT_OF_ADMIT_STATUS_NAME
+FROM RankedClaims rc
+LEFT JOIN payor_dw.DATE_DIMENSION dd 
+    ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY 
+LEFT JOIN payor_dw.SUPPLIER ASHF 
+    ON rc.SUPPLIER_KEY = ashf.SUPPLIER_KEY 
+LEFT JOIN payor_dw."MEMBER" m 
+    ON rc.MEMBER_KEY = m.MEMBER_KEY
+LEFT JOIN payor_dw.PLACE_OF_SERVICE pos 
+    ON rc.PLACE_OF_SERVICE_CODE = pos.PLACE_OF_SERVICE_CODE 
+LEFT JOIN payor_dw.ADMIT_STATUS_CODE ascpos 
+    ON pos.ADMIT_STATUS_CODE = ascpos.ADMIT_STATUS_CODE 
+LEFT JOIN payor_dw.TYPE_OF_BILL tob 
+    ON rc.TYPE_OF_BILL_CODE = tob.TYPE_OF_BILL_CODE 
+LEFT JOIN payor_dw.ADMIT_STATUS_CODE asctob 
+    ON tob.ADMIT_STATUS_CODE = asctob.ADMIT_STATUS_CODE 
+WHERE
+    rn = 1
+GROUP BY COALESCE(ascpos.ADMIT_STATUS_NAME, asctob.ADMIT_STATUS_NAME)
+ORDER BY COUNT_OF_ADMIT_STATUS_NAME DESC;

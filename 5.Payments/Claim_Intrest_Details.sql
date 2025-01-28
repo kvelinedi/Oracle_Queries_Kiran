@@ -1,0 +1,57 @@
+SELECT
+	rc.CLAIM_FACT_KEY,
+    rc.CLAIM_HCC_ID,
+--    rc.CLAIM_STATUS,
+    dd.DATE_VALUE AS Receipt_Date,
+    rc.ENTRY_TIME,
+    rc.MOST_RECENT_PROCESS_TIME ,
+    aclf.CLAIM_LINE_HCC_ID ,
+    rc.CLAIM_LEVEL_SUBMITTED_CHARGES ,
+	aclf.BILLED_AMOUNT,
+	aclf.PAID_AMOUNT,
+    cpf.PAYABLE_AMOUNT AS pf_claim_paid,
+    cif.INTEREST_AMOUNT as pf_Interest_amount,
+--    cpf.RESULTED_IN_RECEIVABLE,
+    claimpaydate.DATE_VALUE AS pf_claim_transaction_date,
+    pf.PAYMENT_NUMBER AS CHECK_NUMBER,
+    suppaydate.DATE_VALUE AS CHECK_PAYMENT_DATE,
+    pf.PAYMENT_AMOUNT AS CHECK_PAID_Amount,
+    pf.PAYMENT_FACT_KEY AS Payment_Transaction_Num,
+    pf.PAYMENT_BATCH_KEY AS Payment_Batch_ID
+FROM CLAIM_FACT rc
+LEFT JOIN 
+	payor_dw.ALL_CLAIM_LINE_FACT aclf ON rc.CLAIM_FACT_KEY = aclf.CLAIM_FACT_KEY
+LEFT JOIN
+    payor_dw.CLAIM_SOURCE_CODE csc ON rc.CLAIM_SOURCE_KEY = csc.CLAIM_SOURCE_KEY
+LEFT JOIN
+	payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+LEFT JOIN
+	payor_dw.SUPPLIER ASHF ON rc.SUPPLIER_KEY = ashf.SUPPLIER_KEY 
+LEFT JOIN 
+  	payor_dw.CLAIM_PAYABLE_FACT cpf ON aclf.CLAIM_LINE_FACT_KEY = cpf.CLAIM_LINE_FACT_KEY 
+LEFT JOIN 
+ 	payor_dw.PMT_FACT_TO_CLM_PAYABLE_FACT pfcpf ON cpf.CLAIM_PAYABLE_FACT_KEY = pfcpf.CLAIM_PAYABLE_FACT_KEY
+LEFT JOIN
+	payor_dw.PAYMENT_FACT pf ON pfcpf.PAYMENT_FACT_KEY = pf.PAYMENT_FACT_KEY 
+--LEFT JOIN 
+--	payor_dw.CLAIM_INTEREST_FACT cif ON aclf.CLAIM_LINE_FACT_KEY = cif.CLAIM_LINE_FACT_KEY
+LEFT JOIN 
+	payor_dw.CLAIM_INTRST_FCT_TO_CLM_PAYBLE ciftcp ON cpf.CLAIM_PAYABLE_FACT_KEY = ciftcp.CLAIM_PAYABLE_FACT_KEY 
+LEFT JOIN 
+	payor_dw.CLAIM_INTEREST_FACT cif ON cif.CLAIM_INTEREST_FACT_KEY  = ciftcp.CLAIM_INTEREST_FACT_KEY
+LEFT JOIN
+	payor_dw.DATE_DIMENSION suppaydate ON pf.PAYMENT_DATE_KEY = suppaydate.DATE_KEY
+LEFT JOIN
+	payor_dw.DATE_DIMENSION claimpaydate ON cpf.PAYABLE_DATE_KEY = claimpaydate.DATE_KEY
+WHERE
+	rc.IS_CONVERTED = 'N'
+	AND rc.IS_TRIAL_CLAIM = 'N'
+--	AND rc.IS_CURRENT = 'Y'  
+ 	AND rc.CLAIM_HCC_ID = '2024235003300' --(receivable, recoipment)(both at same transaction )
+--	rc.CLAIM_HCC_ID = '2024314000853'
+	--rc.CLAIM_HCC_ID ='2024159000517'
+  -- rc.CLAIM_HCC_ID = '2024191001199' --(receivable, recoupment)(recoupment missing at diff transaction)
+--	AND rc.rn = 1
+	AND suppaydate.DATE_VALUE IS NOT NULL 
+ORDER BY 
+	suppaydate.DATE_VALUE, aclf.CLAIM_LINE_HCC_ID

@@ -1,0 +1,178 @@
+WITH RankedClaims AS (
+    SELECT
+  cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM
+        CLAIM_FACT cf
+    WHERE
+        cf.IS_CONVERTED = 'N'
+        AND cf.IS_TRIAL_CLAIM = 'N'
+        AND cf.IS_CURRENT ='Y'
+)
+SELECT
+		rc.CLAIM_HCC_ID AS "Claim ID",
+        rc.CLAIM_STATUS AS "Claim Status",
+        rc.CLAIM_TYPE_NAME AS "Claim Type",
+        clf.CLAIM_LINE_HCC_ID AS "Claim Line ID",
+        m.MEMBER_FULL_NAME AS "Member Name",
+        m.MEMBER_HCC_ID AS "Member ID",
+        s.SUPPLIER_HCC_ID AS "Supplier ID",
+        s.SUPPLIER_NPI AS "Supplier NPI",
+        s.SUPPLIER_NAME AS "Supplier Name",
+        PT.PROVIDER_TAXONOMY_CODE,
+        pt.CLASSIFICATION AS Supplier_Classification,
+        rc.TYPE_OF_BILL_CODE AS "Type Of Bill",
+        DHF.DRG_CODE,
+        d6.DATE_VALUE AS "Service Start Date",
+        d7.DATE_VALUE AS "Service End Date",
+        clf.SERVICE_CODE,
+        ncf.SUBMITTED_NDC_CODE AS "NDC Number",
+        clf.REVENUE_CODE,
+        --mods.MODIFIERS AS "Modifiers",
+        clf.PLACE_OF_SERVICE_CODE AS "Place Of Service",
+        rc.PRIMARY_DIAGNOSIS_CODE AS "Primary Diagnosis",
+        clf.UNIT_COUNT,
+        d5.DATE_VALUE AS "Admit Date",
+        d1.DATE_VALUE AS "Statement Period From",
+        d2.DATE_VALUE AS "Statement Period To",
+        dd.DATE_VALUE AS RECEIPT_DATE,
+      	rc.ENTRY_TIME,
+      	rc.MOST_RECENT_PROCESS_TIME
+FROM RankedClaims rc
+	LEFT JOIN payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+    LEFT JOIN payor_dw.CLAIM_LINE_FACT clf ON rc.CLAIM_FACT_KEY = clf.CLAIM_FACT_KEY
+    LEFT JOIN payor_dw."MEMBER" m ON rc.MEMBER_KEY = m.MEMBER_KEY
+    LEFT JOIN payor_dw.SUPPLIER s ON rc.SUPPLIER_KEY = s.SUPPLIER_KEY
+    LEFT JOIN payor_dw.DATE_DIMENSION d1 ON rc.STATEMENT_START_DATE_KEY = d1.DATE_KEY
+    LEFT JOIN payor_dw.DATE_DIMENSION d2 ON rc.STATEMENT_END_DATE_KEY = d2.DATE_KEY
+    LEFT JOIN payor_dw.DATE_DIMENSION d5 ON rc.ADMISSION_DATE_KEY = d5.DATE_KEY
+    LEFT JOIN payor_dw.DATE_DIMENSION d6 ON clf.SERVICE_START_DATE_KEY = d6.DATE_KEY
+    LEFT JOIN payor_dw.DATE_DIMENSION d7 ON clf.SERVICE_END_DATE_KEY = d7.DATE_KEY
+    LEFT JOIN payor_dw.CLAIM_LN_FACT_TO_NDC_CODE_INFO cfnc ON clf.CLAIM_LINE_FACT_KEY = cfnc.CLAIM_LINE_FACT_KEY
+    LEFT JOIN payor_dw.NDC_CODE_INFO_FACT ncf ON cfnc.NDC_CODE_INFO_KEY = ncf.NDC_CODE_INFO_KEY
+    LEFT JOIN payor_dw.DRG DHF ON rc.DRG_KEY = DHF.DRG_KEY
+    LEFT JOIN payor_dw.PROVIDER_TAXONOMY pt ON s.PRIMARY_CLASSIFICATION_KEY = pt.PROVIDER_TAXONOMY_KEY
+--	LEFT JOIN payor_dw.PLACE_OF_SERVICE pos ON clf.PLACE_OF_SERVICE_CODE = pos.PLACE_OF_SERVICE_CODE 
+--	LEFT JOIN payor_dw.TYPE_OF_BILL tob ON rc.TYPE_OF_BILL_CODE = tob.TYPE_OF_BILL_CODE 
+--	LEFT JOIN (
+--        SELECT
+--            CLFM.CLAIM_LINE_FACT_KEY,
+--            LISTAGG(CLFM.MODIFIER_CODE, ', ') WITHIN GROUP (ORDER BY CLFM.MODIFIER_CODE) AS MODIFIERS
+--        FROM
+--            payor_dw.CLAIM_LINE_FACT_TO_MODIFIER CLFM
+--        GROUP BY
+--            CLFM.CLAIM_LINE_FACT_KEY
+--    ) mods ON clf.CLAIM_LINE_FACT_KEY = mods.CLAIM_LINE_FACT_KEY
+WHERE
+    rn = 1
+    AND s.SUPPLIER_HCC_ID = '1000342'
+    AND dd.DATE_VALUE >= TO_TIMESTAMP('2024-11-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+
+
+ ----------------------------------------------------------------------------------------------------------------------------------------    
+ --Claims in Needs Repair -- 319 CPT/HCPCS Code is not active
+---------------------------------------------------------------------------------------------------------------------------------------- 
+ WITH RecentClaims AS (
+    SELECT
+        cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) as row_num
+    FROM
+        payor_dw.claim_fact cf
+    WHERE
+        cf.IS_CONVERTED = 'N' AND
+        cf.IS_TRIAL_CLAIM = 'N' AND
+        cf.ENTRY_TIME >= TO_TIMESTAMP('2024-07-02 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+)
+--AggregatedClaimLines AS (
+--    SELECT
+--        CLAIM_FACT_KEY,
+--        SUM(BILLED_AMOUNT) AS TOTAL_BILLED_AMOUNT,
+--        SUM(PAID_AMOUNT) AS TOTAL_PAID_AMOUNT
+--    FROM
+--        payor_dw.ALL_CLAIM_LINE_FACT
+--    GROUP BY
+--        CLAIM_FACT_KEY
+--)
+SELECT 
+    rc.CLAIM_HCC_ID,
+    rc.CLAIM_STATUS,
+    aclf.CLAIM_LINE_HCC_ID ,
+    clrrte.trigger_code AS Claim_Line_Exception_Trigger,  
+    clrrte.trigger_desc AS Claim_Line_Exception_Trigger_desc,
+--    clrrte.TRIGGER_DOMAIN_NAME AS Claim_Line_Exception_Trigger_Domain,
+--    clrrte.POLICY_NAME AS Claim_Line_Exception_Trigger_Policy_Name,
+    dd1.DATE_VALUE AS SERVICE_START_DATE,
+    dd2.DATE_VALUE AS SERVICE_END_DATE,
+    aclf.PLACE_OF_SERVICE_CODE ,
+    aclf.SERVICE_CODE,
+    clftm.MODIFIER_CODE ,
+    aclf.UNIT_COUNT AS UNIT_OF_SERVICE,
+    rc.SI_SUPPLIER_NAME AS SUBMITTED_SUPPLIER_NAME,
+    ashf.SUPPLIER_NAME AS ASHF_SUPPLIER_NAME,
+    rc.SI_SUPPLIER_NPI AS SUBMITTED_SUPPLIER_NPI,
+    ashf.SUPPLIER_NPI  AS ASHF_SUPPLIER_NPI,
+    rc.SI_SUPPLIER_ID AS SUBMITTED_SUPPLIER_ID,
+    ashf.SUPPLIER_HCC_ID AS ASHF_SUPPLIER_HCC_ID,
+    rc.SI_SUPPLIER_TAX AS SUBMITTED_SUPPLIER_TAX,
+    TE.TAX_ID AS ASHF_TAX_ID,
+    rc.FACILITY_LOCATION_ID AS SUBMITTED_LOCATION_ID,
+    sl.SUPPLIER_LOCATION_HCC_ID ,
+    rc.FACILITY_LOCATION_NAME AS SUBMITTED_LOCATION_NAME,
+    sl.SUPPLIER_LOCATION_NAME ,
+    rc.FACILITY_LOCATION_NPI AS SUBMITTED_LOCATION_NPI,
+    sl.SUPPLIER_LOCATION_NPI ,
+    --p.PRACTITIONER_HCC_ID ,
+    --p.PRACTITIONER_FIRST_NAME ,
+    --am.ADJUDICATION_MESSAGE_CODE AS Message_Code, 
+    --am.ADJUDICATION_MESSAGE_DESC AS MESSAGE_DESC, 
+    dd.DATE_VALUE AS RECEIPT_DATE,
+    TRUNC(CURRENT_DATE) -  TRUNC(dd.DATE_VALUE) AS day_difference_receipt,
+    rc.SI_SUPPLIER_ADDRESS AS SUBMITTED_SUPPLIER_ADDRESS,
+    rc.SI_SUPPLIER_CITY AS SUBMITTED_SUPPLIER_CITY,
+    rc.SI_SUPPLIER_STATE AS SUBMITTED_SUPPLIER_STATE,
+    rc.SI_SUPPLIER_ZIPCODE AS SUBMITTED_SUPPLIER_ZIPCODE,
+    PA.ADDRESS_LINE AS ASHF_SUPPLIER_ADDRESS,
+    PA.CITY_NAME AS ASHF_SUPPLIER_CITY,
+    PA.STATE_CODE AS ASHF_SUPPLIER_STATE ,
+    PA.ZIP_CODE AS ASHF_SUPPLIER_ZIPCODE,
+    rc.ENTRY_TIME,
+    rc.MOST_RECENT_PROCESS_TIME 
+FROM
+    RecentClaims rc
+--LEFT JOIN
+--    AggregatedClaimLines aclf_agg ON rc.CLAIM_FACT_KEY = aclf_agg.CLAIM_FACT_KEY
+LEFT JOIN
+     payor_dw.ALL_CLAIM_LINE_FACT aclf ON rc.CLAIM_FACT_KEY = aclf.CLAIM_FACT_KEY
+LEFT JOIN
+    PAYOR_DW.CLAIM_LINE_FACT_TO_EXCEPTION clfe ON aclf.CLAIM_LINE_FACT_KEY = clfe.CLAIM_LINE_FACT_KEY
+LEFT JOIN
+    payor_dw.review_repair_trigger clrrte ON clfe.REVIEW_REPAIR_TRIGGER_KEY= clrrte.REVIEW_REPAIR_TRIGGER_KEY
+LEFT JOIN 
+    payor_dw.CLAIM_LINE_FACT_TO_MODIFIER clftm ON aclf.CLAIM_LINE_FACT_KEY = clftm.CLAIM_LINE_FACT_KEY 
+LEFT JOIN
+    payor_dw.CLAIM_SOURCE_CODE csc ON rc.CLAIM_SOURCE_KEY = csc.CLAIM_SOURCE_KEY
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+LEFT JOIN
+    payor_dw.supplier ashf ON rc.SUPPLIER_KEY = ashf.SUPPLIER_KEY
+LEFT JOIN
+    payor_dw.POSTAL_ADDRESS pa ON ASHF.SUPPLIER_CORR_ADDRESS_KEY = pa.POSTAL_ADDRESS_KEY 
+LEFT JOIN 
+    payor_dw.SUPPLIER_LOCATION sl ON rc.LOCATION_KEY = sl.SUPPLIER_LOCATION_KEY 
+LEFT JOIN 
+    payor_dw.TAX_ENTITY te ON ASHF.TAX_ENTITY_KEY = TE.TAX_ENTITY_KEY 
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd1 ON aclf.SERVICE_START_DATE_KEY = dd1.DATE_KEY
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd2 ON aclf.SERVICE_END_DATE_KEY = dd2.DATE_KEY
+--LEFT JOIN 
+    --payor_dw.PRACTITIONER p ON aclf.PRACTITIONER_KEY = p.PRACTITIONER_KEY 
+--LEFT JOIN 
+    --payor_dw.CLAIM_LINE_FACT_TO_ADJD_MSG clfam ON aclf.CLAIM_LINE_FACT_KEY = clfam.CLAIM_LINE_FACT_KEY 
+--LEFT JOIN 
+    --payor_dw.ADJUDICATION_MESSAGE am ON clfam.ADJUDICATION_MESSAGE_KEY = am.ADJUDICATION_MESSAGE_KEY 
+WHERE
+    rc.CLAIM_STATUS = 'Needs Repair' AND 
+    clrrte.trigger_code ='319' AND
+    --rc.CLAIM_HCC_ID = '2024191007770' AND 
+    rc.row_num = 1  

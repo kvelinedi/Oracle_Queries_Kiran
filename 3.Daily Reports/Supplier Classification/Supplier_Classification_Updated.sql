@@ -1,0 +1,102 @@
+----------------------------------------------------------------------------------------------------------------------
+--Updated Version
+----------------------------------------------------------------------------------------------------------------------
+
+WITH RankedClaims AS (
+    SELECT
+        cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM
+        CLAIM_FACT cf
+    WHERE
+        cf.IS_CONVERTED = 'N'
+        AND cf.IS_TRIAL_CLAIM = 'N'
+        AND cf.ENTRY_TIME >= TO_TIMESTAMP('2024-07-02 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+),
+AggregatedClaimLines AS (
+    SELECT
+        aclf.CLAIM_FACT_KEY,
+        CASE 
+            WHEN COUNT(DISTINCT pa.ADDRESS_LINE || pa.CITY_NAME || pa.STATE_CODE || pa.ZIP_CODE) > 1 THEN 'Duplicate'
+            ELSE MAX(pa.ADDRESS_LINE)
+        END AS SI_SERVICE_RENDERED_ADDRESS,
+        CASE 
+            WHEN COUNT(DISTINCT pa.ADDRESS_LINE || pa.CITY_NAME || pa.STATE_CODE || pa.ZIP_CODE) > 1 THEN 'Duplicate'
+            ELSE MAX(pa.CITY_NAME)
+        END AS SI_SERVICE_RENDERED_CITY,
+        CASE 
+            WHEN COUNT(DISTINCT pa.ADDRESS_LINE || pa.CITY_NAME || pa.STATE_CODE || pa.ZIP_CODE) > 1 THEN 'Duplicate'
+            ELSE MAX(pa.STATE_CODE)
+        END AS SI_SERVICE_RENDERED_STATE,
+        CASE 
+            WHEN COUNT(DISTINCT pa.ADDRESS_LINE || pa.CITY_NAME || pa.STATE_CODE || pa.ZIP_CODE) > 1 THEN 'Duplicate'
+            ELSE MAX(pa.ZIP_CODE)
+        END AS SI_SERVICE_RENDERED_ZIP,
+        SUM(aclf.BILLED_AMOUNT) AS TOTAL_BILLED_AMOUNT,
+        SUM(aclf.PAID_AMOUNT) AS TOTAL_PAID_AMOUNT
+    FROM
+        payor_dw.ALL_CLAIM_LINE_FACT aclf
+    LEFT JOIN 
+        PAYOR_DW.POSTAL_ADDRESS pa ON aclf.SERVICE_RENDERED_ADDRESS_KEY = pa.POSTAL_ADDRESS_KEY 
+    GROUP BY
+        aclf.CLAIM_FACT_KEY
+)
+SELECT
+    rc.CLAIM_HCC_ID,
+    rc.CLAIM_STATUS,
+    rc.CLAIM_TYPE_NAME,
+    csc.CLAIM_SOURCE_NAME,
+    dd.DATE_VALUE AS Receipt_Date,
+    rc.SI_SUPPLIER_NAME,
+    rc.SI_SUPPLIER_ID,
+    rc.SI_SUPPLIER_NPI,
+    rc.SI_SUPPLIER_ADDRESS,
+    rc.SI_SUPPLIER_CITY,
+    rc.SI_SUPPLIER_STATE,
+    rc.SI_SUPPLIER_ZIPCODE,
+    pa.ADDRESS_LINE AS SI_PAY_TO_ADDRESS,
+    --pa.CITY_NAME AS SI_PAY_TO_CITY,
+    --pa.STATE_CODE AS SI_PAY_TO_STATE,
+    --pa.ZIP_CODE AS SI_PAY_TO_ZIP,
+    aclf_agg.SI_SERVICE_RENDERED_ADDRESS,
+    aclf_agg.SI_SERVICE_RENDERED_CITY,
+    aclf_agg.SI_SERVICE_RENDERED_STATE,
+    aclf_agg.SI_SERVICE_RENDERED_ZIP,
+    ashf.SUPPLIER_NAME AS ASHF_SUPPLIER_NAME,
+    ashf.SUPPLIER_HCC_ID AS ASHF_SUPPLIER_HCC_ID,
+    PT.PROVIDER_TAXONOMY_CODE,
+    pt.CLASSIFICATION AS Supplier_Classification,
+    rc.CLAIM_LEVEL_SUBMITTED_CHARGES AS BILLED_AMOUNT,
+    aclf_agg.TOTAL_PAID_AMOUNT,
+    suppaydate.DATE_VALUE AS Payment_Date
+FROM RankedClaims rc
+LEFT JOIN
+    AggregatedClaimLines aclf_agg ON rc.CLAIM_FACT_KEY = aclf_agg.CLAIM_FACT_KEY
+LEFT JOIN
+    payor_dw.CLAIM_SOURCE_CODE csc ON rc.CLAIM_SOURCE_KEY = csc.CLAIM_SOURCE_KEY
+LEFT JOIN
+    payor_dw.PAYMENT_FACT_TO_CLAIM_FACT pftcf ON rc.CLAIM_FACT_KEY = pftcf.CLAIM_FACT_KEY
+LEFT JOIN
+    payor_dw.PAYMENT_FACT pf ON pftcf.PAYMENT_FACT_KEY = pf.PAYMENT_FACT_KEY
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+LEFT JOIN
+    payor_dw.SUPPLIER ASHF ON rc.SUPPLIER_KEY = ashf.SUPPLIER_KEY 
+LEFT JOIN
+    payor_dw.PROVIDER_TAXONOMY pt ON ashf.PRIMARY_CLASSIFICATION_KEY = pt.PROVIDER_TAXONOMY_KEY
+LEFT JOIN
+    payor_dw.DATE_DIMENSION suppaydate ON pf.PAYMENT_DATE_KEY = suppaydate.DATE_KEY
+LEFT JOIN 
+    PAYOR_DW.POSTAL_ADDRESS pa ON rc.SUBMITTED_PAY_TO_ADDRESS_KEY = pa.POSTAL_ADDRESS_KEY 
+WHERE
+    rn = 1
+    --AND aclf_agg.SI_SERVICE_RENDERED_ADDRESS = 'Duplicate'
+    AND rc.CLAIM_HCC_ID = '2024159000057'
+--AND rc.CLAIM_HCC_ID = '2024242003527';
+    
+--2024254002993
+--2024207014327
+--2024242003527
+--2024179005875
+--2024247009002
+--2024159000052

@@ -1,0 +1,37 @@
+    
+    
+    WITH RecentClaims AS (
+    SELECT
+        cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS row_num
+    FROM
+        payor_dw.claim_fact cf
+    WHERE
+        cf.IS_CONVERTED = 'N'
+        AND cf.IS_TRIAL_CLAIM = 'N'
+        AND cf.IS_CURRENT = 'Y'
+        AND cf.CLAIM_STATUS IN ('Needs Repair', 'Needs Review')
+)
+SELECT
+    rc.CLAIM_HCC_ID,
+    aclf.CLAIM_LINE_HCC_ID ,
+    rc.CLAIM_STATUS,
+    rc.SI_SUPPLIER_NAME,
+    rc.SI_SUPPLIER_ID,
+    rc.SI_SUPPLIER_NPI,
+    rc.SI_SUPPLIER_TAX,
+    rc.FACILITY_LOCATION_NAME AS SUBMITTED_LOCATION_NAME,
+    rc.FACILITY_LOCATION_ID AS SUBMITTED_LOCATION_ID,
+    rc.FACILITY_LOCATION_NPI AS SUBMITTED_LOCATION_NPI,
+    dd.DATE_VALUE AS RECEIPT_DATE,
+    (TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE)) AS RECEIPT_DAY_COUNT,
+    rc.ENTRY_TIME,
+    rc.MOST_RECENT_PROCESS_TIME
+FROM
+    RecentClaims rc
+LEFT JOIN
+     payor_dw.ALL_CLAIM_LINE_FACT aclf ON rc.CLAIM_FACT_KEY = aclf.CLAIM_FACT_KEY
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+WHERE
+	rc.row_num = 1

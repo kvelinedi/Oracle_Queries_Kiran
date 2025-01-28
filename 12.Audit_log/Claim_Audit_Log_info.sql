@@ -1,0 +1,37 @@
+ WITH RankedClaims AS (
+    SELECT
+  cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM
+        CLAIM_FACT cf
+    WHERE
+        cf.IS_CONVERTED = 'N'
+        AND cf.IS_TRIAL_CLAIM = 'N'
+        --AND cf.IS_CURRENT ='Y'
+)
+SELECT
+	rc.CLAIM_FACT_KEY,	
+    rc.CLAIM_HCC_ID,
+    rc.CLAIM_STATUS,
+    --    alef.HCC_USER_ID ,
+    ua.USER_NAME ,
+    alef.ENTRY_TIME ,
+    --alef.ACTION_TYPE_CODE ,
+    atc.ACTION_TYPE_DESC ,
+    alef.MESSAGE_DESC AS reason,
+    alef.LOG_NOTE AS "COMMENT"
+FROM RankedClaims rc
+LEFT JOIN
+	payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY 
+LEFT JOIN 
+	payor_dw.AUDIT_LOG_ENTRY_FACT alef ON rc.AUDIT_LOG_KEY = alef.AUDIT_LOG_KEY 
+LEFT JOIN 
+    payor_dw.ACTION_TYPE_CODE atc ON alef.ACTION_TYPE_CODE = atc.ACTION_TYPE_CODE 
+LEFT JOIN 
+	payor_dw.USER_ACCOUNT ua ON alef.HCC_USER_ID = ua.USER_ACCOUNT_KEY 
+WHERE
+     rn = 1 AND
+     rc.CLAIM_HCC_ID = '2024192010058' AND 
+     --rc.CLAIM_HCC_ID = '2024304008598'
+     atc.ACTION_TYPE_DESC NOT IN ('View')  
+ORDER BY alef.ENTRY_TIME DESC

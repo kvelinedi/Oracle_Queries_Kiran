@@ -1,0 +1,146 @@
+ WITH RankedClaims AS (
+    SELECT
+  cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM
+        CLAIM_FACT cf
+    WHERE
+        cf.IS_CONVERTED = 'Y'
+--        AND cf.IS_CURRENT = 'Y'
+        AND cf.IS_TRIAL_CLAIM = 'N'
+--        AND cf.ENTRY_TIME >= TO_TIMESTAMP('2024-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+--        AND cf.ENTRY_TIME < TO_TIMESTAMP('2024-07-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+),
+AggregatedClaimLines AS (
+    SELECT
+        CLAIM_FACT_KEY,
+        SUM(BILLED_AMOUNT) AS TOTAL_BILLED_AMOUNT,
+        SUM(PAID_AMOUNT) AS TOTAL_PAID_AMOUNT
+    FROM
+        payor_dw.ALL_CLAIM_LINE_FACT
+    GROUP BY
+        CLAIM_FACT_KEY
+)
+SELECT
+    rc.CLAIM_HCC_ID,
+    rc.CLAIM_STATUS,
+    csc.CLAIM_SOURCE_NAME ,
+    ASHF.SUPPLIER_HCC_ID ,
+    ASHF.SUPPLIER_NAME ,
+    dd.DATE_VALUE AS Receipt_Date,
+    rc.ENTRY_TIME,
+    rc.MOST_RECENT_PROCESS_TIME,
+    rc.CLAIM_LEVEL_SUBMITTED_CHARGES AS Claim_BILLED_AMOUNT,
+    aclf_agg.TOTAL_BILLED_AMOUNT,
+    aclf_agg.TOTAL_PAID_AMOUNT,
+    suppaydate.DATE_VALUE AS Payment_Date,
+    pf.PAYMENT_NUMBER AS CHECK_NUMBER,
+    pf.PAYMENT_CYCLE_KEY AS Payment_Cycle_ID,
+    pf.PAYMENT_FACT_KEY AS Transaction_Num,
+    pf.PAYMENT_BATCH_KEY AS Payment_Batch_ID,
+    RC.IS_CONVERTED,
+    RC.IS_CURRENT,
+    RC.IS_TRIAL_CLAIM
+FROM RankedClaims rc
+LEFT JOIN
+    AggregatedClaimLines aclf_agg ON rc.CLAIM_FACT_KEY = aclf_agg.CLAIM_FACT_KEY
+LEFT JOIN
+    payor_dw.CLAIM_SOURCE_CODE csc ON rc.CLAIM_SOURCE_KEY = csc.CLAIM_SOURCE_KEY
+LEFT JOIN
+	payor_dw.PAYMENT_FACT_TO_CLAIM_FACT pftcf ON rc.CLAIM_FACT_KEY = pftcf.CLAIM_FACT_KEY
+LEFT JOIN
+	payor_dw.PAYMENT_FACT pf ON pftcf.PAYMENT_FACT_KEY = pf.PAYMENT_FACT_KEY
+LEFT JOIN
+	payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+LEFT JOIN
+	payor_dw.SUPPLIER ASHF ON rc.SUPPLIER_KEY = ashf.SUPPLIER_KEY 
+LEFT JOIN
+	payor_dw.DATE_DIMENSION suppaydate ON pf.PAYMENT_DATE_KEY = suppaydate.DATE_KEY
+WHERE
+    rn = 1
+    AND  rc.CLAIM_HCC_ID = '2024180003565'
+
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------
+WITH RankedClaims AS (
+    SELECT
+  cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM
+        CLAIM_FACT cf
+    WHERE
+        cf.IS_CONVERTED = 'N'
+        AND cf.IS_TRIAL_CLAIM = 'N'
+        AND cf.ENTRY_TIME >= TO_TIMESTAMP('2024-07-02 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+),
+AggregatedClaimLines AS (
+    SELECT
+        CLAIM_FACT_KEY,
+        SUM(BILLED_AMOUNT) AS TOTAL_BILLED_AMOUNT,
+        SUM(PAID_AMOUNT) AS TOTAL_PAID_AMOUNT
+    FROM
+        payor_dw.ALL_CLAIM_LINE_FACT
+    GROUP BY
+        CLAIM_FACT_KEY
+)
+SELECT
+    rc.CLAIM_HCC_ID,
+    rc.CLAIM_STATUS,
+    csc.CLAIM_SOURCE_NAME ,
+    dd.DATE_VALUE AS Receipt_Date,
+    TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) AS Claim_Aging,
+    CASE
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 0 AND 5 THEN '0-5 days'
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 6 AND 11 THEN '6-11 days'
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 12 AND 20 THEN '12-20 days'
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 21 AND 30 THEN '21-30 days'
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 31 AND 35 THEN '31-35 days'
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 36 AND 45 THEN '36-45 days'
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 46 AND 60 THEN '46-60 days'
+        WHEN TRUNC(CURRENT_DATE) - TRUNC(dd.DATE_VALUE) BETWEEN 61 AND 90 THEN '61-90 days'
+        ELSE '90+ days'
+    END AS Claim_Aging_Category,
+    rc.ENTRY_TIME,
+    rc.MOST_RECENT_PROCESS_TIME,
+    rc.SI_SUPPLIER_NAME,
+    ashf.SUPPLIER_NAME AS ASHF_SUPPLIER_NAME,
+    rc.SI_SUPPLIER_ID,
+    ashf.SUPPLIER_HCC_ID AS ASHF_SUPPLIER_HCC_ID,
+    rc.SI_SUPPLIER_NPI,
+    ashf.SUPPLIER_NPI AS ASHF_SUPPLIER_NPI,
+    rc.CLAIM_LEVEL_SUBMITTED_CHARGES AS TOTAL_BILLED_AMOUNT,
+    aclf_agg.TOTAL_PAID_AMOUNT,
+    suppaydate.DATE_VALUE AS Payment_Date,
+    ptc.PAYMENT_TYPE_DESC AS Payment_Type,
+    pf.PAYMENT_AMOUNT AS Supplier_Batch_Paid_Amount,
+    pf.PAYMENT_FACT_KEY AS Transaction_Num,
+    pf.PAYMENT_NUMBER AS CHECK_NUMBER,
+    CASE
+        WHEN suppaydate.DATE_VALUE IS NOT NULL AND aclf_agg.TOTAL_PAID_AMOUNT > 0 THEN 'PAID_CLAIM'
+        WHEN suppaydate.DATE_VALUE IS NOT NULL AND aclf_agg.TOTAL_PAID_AMOUNT = 0 THEN 'ZERO_DOLLAR_PAID_CLAIM'
+        WHEN suppaydate.DATE_VALUE IS NULL AND aclf_agg.TOTAL_PAID_AMOUNT IS NULL THEN 'UNPAID_CLAIM'
+        ELSE 'UNPAID_CLAIM'
+    END AS Payment_Status
+FROM RankedClaims rc
+LEFT JOIN
+    AggregatedClaimLines aclf_agg ON rc.CLAIM_FACT_KEY = aclf_agg.CLAIM_FACT_KEY
+LEFT JOIN
+    payor_dw.CLAIM_SOURCE_CODE csc ON rc.CLAIM_SOURCE_KEY = csc.CLAIM_SOURCE_KEY
+LEFT JOIN
+    payor_dw.PAYMENT_FACT_TO_CLAIM_FACT pftcf ON rc.CLAIM_FACT_KEY = pftcf.CLAIM_FACT_KEY
+LEFT JOIN
+    payor_dw.PAYMENT_FACT pf ON pftcf.PAYMENT_FACT_KEY = pf.PAYMENT_FACT_KEY
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+LEFT JOIN 
+    PAYMENT_TYPE_CODE ptc ON pf.PAYMENT_TYPE_KEY = ptc.PAYMENT_TYPE_KEY
+LEFT JOIN
+    payor_dw.SUPPLIER ASHF ON rc.SUPPLIER_KEY = ashf.SUPPLIER_KEY 
+LEFT JOIN
+    payor_dw.DATE_DIMENSION suppaydate ON pf.PAYMENT_DATE_KEY = suppaydate.DATE_KEY
+WHERE
+    rn = 1 AND 
+    rc.CLAIM_STATUS = 'Final';
+
