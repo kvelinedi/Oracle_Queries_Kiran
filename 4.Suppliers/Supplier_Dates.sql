@@ -1,6 +1,19 @@
-   
-   
-   
+    
+SELECT 
+	ashf.SUPPLIER_HCC_ID ,
+	ashf.SUPPLIER_NAME,
+	ashf.SUPPLIER_STATUS ,
+    D1.DATE_VALUE AS Version_eff_date,
+    D2.DATE_VALUE AS Version_exp_date
+FROM 
+	payor_dw.SUPPLIER ashf 
+ JOIN 
+    PAYOR_DW.DATE_DIMENSION D1 ON ashf.VERSION_EFF_DATE_KEY = D1.DATE_KEY
+ JOIN 
+    PAYOR_DW.DATE_DIMENSION D2 ON ashf.VERSION_EXP_DATE_KEY = D2.DATE_KEY
+WHERE 
+	ashf.SUPPLIER_HCC_ID IN    
+----------------------------------------------------------------------------------------------------------------------------------------
 
 SELECT 
 	ashf.SUPPLIER_NAME AS ASHF_SUPPLIER_NAME,
