@@ -1,0 +1,52 @@
+WITH RankedClaims AS (
+    SELECT
+  cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS rn
+    FROM
+        CLAIM_FACT cf
+--    WHERE
+--        cf.IS_CONVERTED = 'N'
+--        AND cf.IS_TRIAL_CLAIM = 'N'
+--        AND cf.IS_CURRENT ='Y'
+),
+AggregatedClaimLines AS (
+    SELECT
+        CLAIM_FACT_KEY,
+        SUM(BILLED_AMOUNT) AS TOTAL_BILLED_AMOUNT,
+        SUM(PAID_AMOUNT) AS TOTAL_PAID_AMOUNT
+    FROM
+        payor_dw.ALL_CLAIM_LINE_FACT
+    GROUP BY
+        CLAIM_FACT_KEY
+)
+SELECT
+    rc.CLAIM_HCC_ID,
+    rc.CLAIM_STATUS,
+    rc.EXTERNAL_CLAIM_NUMBER,
+    rc.TRADING_PARTNER_ID,
+    rc.CLEARING_HOUSE_TRACE_NUMBER ,
+    csmsf.SI_MEMBER_ID,	
+    csmsf.SI_MEMBER_NAME,	
+    csmsf.SI_MEMBER_GENDER,
+    rc.SI_SUPPLIER_NAME,
+    rc.SI_SUPPLIER_ID,
+    rc.SI_SUPPLIER_NPI,
+    rc.SI_SUPPLIER_TAX,
+    aclf_agg.TOTAL_BILLED_AMOUNT,
+    aclf_agg.TOTAL_PAID_AMOUNT,
+    dd.DATE_VALUE AS Receipt_Date,
+    rc.ENTRY_TIME,
+    rc.MOST_RECENT_PROCESS_TIME
+FROM RankedClaims rc
+LEFT JOIN
+    AggregatedClaimLines aclf_agg ON rc.CLAIM_FACT_KEY = aclf_agg.CLAIM_FACT_KEY
+LEFT JOIN
+	payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
+LEFT JOIN
+    payor_dw."MEMBER" m ON rc.MEMBER_KEY = m.MEMBER_KEY
+LEFT JOIN
+    payor_dw.CLAIM_SI_MEB_SUB_FACT csmsf ON rc.CLAIM_FACT_KEY = csmsf.CLAIM_FACT_KEY
+WHERE
+    rn = 1
+--    AND rc.ENTRY_TIME >= TO_TIMESTAMP('2024-12-20 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+--    AND rc.ENTRY_TIME < TO_TIMESTAMP('2024-12-21 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
