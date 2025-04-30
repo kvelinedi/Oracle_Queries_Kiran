@@ -1,47 +1,55 @@
- WITH RecentClaims AS (
+WITH RecentClaims AS (
     SELECT
-        rc.CLAIM_HCC_ID,
-        --rc.CLAIM_FACT_KEY,
-        rc.CLAIM_STATUS,
-        csc.CLAIM_SOURCE_NAME,
-        rc.IS_CONVERTED,
-        rc.IS_CURRENT ,
-        dd.DATE_VALUE,
-        rc.ENTRY_TIME,
-        rc.MOST_RECENT_PROCESS_TIME,
-        ROW_NUMBER() OVER (PARTITION BY rc.CLAIM_HCC_ID ORDER BY rc.MOST_RECENT_PROCESS_TIME DESC) AS ROW_NUM,
-        MAX(CASE WHEN rc.CLAIM_STATUS = 'Final' THEN 1 ELSE 0 END) 
-            OVER (PARTITION BY rc.CLAIM_HCC_ID) AS HAS_FINAL
+        cf.*,
+        ROW_NUMBER() OVER (PARTITION BY cf.CLAIM_HCC_ID ORDER BY cf.MOST_RECENT_PROCESS_TIME DESC) AS row_num
     FROM
-        payor_dw.claim_fact rc
-    JOIN
-        payor_dw.CLAIM_LINE_FACT clf ON rc.CLAIM_FACT_KEY = clf.CLAIM_FACT_KEY
-    JOIN
-        payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY  
+        payor_dw.claim_fact cf
+    WHERE
+      cf.IS_CONVERTED = 'N'
+       AND cf.IS_TRIAL_CLAIM = 'N'
+       AND cf.IS_CURRENT = 'Y'
+       --AND cf.EXTERNAL_CLAIM_NUMBER = ' '
+),
+TriggerDataException AS (
+    SELECT
+        cfte.claim_fact_key,
+        LISTAGG(rrte.trigger_code, ', ') WITHIN GROUP (ORDER BY rrte.trigger_code) AS exception_trigger_code,
+        LISTAGG(rrte.trigger_desc, ', ') WITHIN GROUP (ORDER BY rrte.trigger_code) AS exception_trigger_desc
+    FROM
+        payor_dw.CLAIM_FACT_TO_EXCEPTION cfte
     LEFT JOIN
-    	payor_dw.CLAIM_SOURCE_CODE csc ON rc.CLAIM_SOURCE_KEY = csc.CLAIM_SOURCE_KEY
-    WHERE  
-        rc.IS_CONVERTED = 'N'
-        AND rc.IS_TRIAL_CLAIM = 'N'
-        AND rc.IS_CURRENT = 'Y'
-        --AND rc.CLAIM_HCC_ID = '2024179012955'  --verify
+        payor_dw.review_repair_trigger rrte ON cfte.review_repair_trigger_key = rrte.review_repair_trigger_key
+    GROUP BY cfte.claim_fact_key
+),
+TriggerDataReview AS (
+    SELECT
+        cftrt.claim_fact_key,
+        LISTAGG(rrt.trigger_code, ', ') WITHIN GROUP (ORDER BY rrt.trigger_code) AS review_trigger_code,
+        LISTAGG(rrt.trigger_desc, ', ') WITHIN GROUP (ORDER BY rrt.trigger_code) AS review_trigger_desc
+    FROM
+        payor_dw.CLAIM_FACT_TO_REVIEW_TRIGGER cftrt
+    LEFT JOIN
+        payor_dw.review_repair_trigger rrt ON cftrt.review_repair_trigger_key = rrt.review_repair_trigger_key
+    GROUP BY cftrt.claim_fact_key
 )
 SELECT
-    rcc.CLAIM_HCC_ID,
-    --rcc.CLAIM_FACT_KEY,
-    rcc.CLAIM_STATUS,
-    RCC.CLAIM_SOURCE_NAME,
-    rcc.DATE_VALUE AS Receipt_Date,
-    rcc.ENTRY_TIME,
-    rcc.MOST_RECENT_PROCESS_TIME,
-    rcc.IS_CONVERTED,
-    rcc.IS_CURRENT 
+       rc.CLAIM_HCC_ID,
+          rc.EXTERNAL_CLAIM_NUMBER,
+       rc.CLAIM_STATUS,
+       tde.exception_trigger_code AS exception_trigger_code,
+       tde.exception_trigger_desc AS exception_trigger_desc,
+       tdr.review_trigger_code AS review_trigger_code,
+       tdr.review_trigger_desc AS review_trigger_desc,
+       dd.DATE_VALUE AS RECEIPT_DATE,
+       rc.ENTRY_TIME,
+       rc.MOST_RECENT_PROCESS_TIME
 FROM
-    RecentClaims rcc
+    RecentClaims rc
+LEFT JOIN
+    TriggerDataException tde ON rc.claim_fact_key = tde.claim_fact_key
+LEFT JOIN
+    TriggerDataReview tdr ON rc.claim_fact_key = tdr.claim_fact_key
+LEFT JOIN
+    payor_dw.DATE_DIMENSION dd ON rc.RECEIPT_DATE_KEY = dd.DATE_KEY
 WHERE
-    rcc.ROW_NUM = 1 -- Select the most recent record
-    AND rcc.HAS_FINAL = 1-- Exclude claims with any version in 'Final' status
-    AND RCC.CLAIM_SOURCE_NAME = 'COBA Claims'
-    AND rcc.CLAIM_STATUS IN ('Needs Repair', 'Needs Review') -- Only include desired statuses
-ORDER BY
-    CLAIM_HCC_ID; 
+    rc.row_num = 1
